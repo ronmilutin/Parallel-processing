@@ -1,0 +1,83 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <mpi.h>
+#include <math.h>
+#include <time.h>
+
+
+// (eventually not in use)this function generates random number and normalize it to [0,1)
+double rand_double()
+{
+    return (double)rand() / (double)RAND_MAX;
+}
+
+int main(int argc, char **argv)
+{
+    int rank, size, i, j, Nc_local;
+    int nc = 100000000; // number of points to generate
+    int ns = 0; // number of points inside the sphere
+    int num_inside = 0;
+    double x, y, z, d;
+    double r = 1.0; // radius of sphere
+    double pi25 = 3.141592653589793238462643; // 25-digit reference value of pi
+    double pi;
+    double t1, t2; // timing variables
+	unsigned int *seeds = NULL; // array of random seeds for each rank
+	seeds = (unsigned int*)malloc(size * sizeof(unsigned int));
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+	
+	//number of points to generate per rank
+	Nc_local = nc / size;
+	
+	if (rank == 0) {
+		printf("Number of processes: %d\n", size);
+		printf("Number of points: %lld\n", nc);
+		printf("Number of points per process: %lld\n", Nc_local);
+		// Generate random seeds for each rank
+		srand(time(NULL));
+		for (i = 0; i < size; i++) {
+			seeds[i] = rand();
+		}
+    }
+	
+    MPI_Bcast(seeds, size, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+	
+	//double x_start = (double)rank / (double)size; // starting x coordinate for this rank
+	//double x_end = (double)(rank + 1) / (double)size; // ending x coordinate for this rank
+	srand(seeds[rank]);
+	
+	t1 = MPI_Wtime();
+	
+	// generating Nc_local points per processor
+    for (i = 0; i < Nc_local; i++) {
+		x = ((double)rand() / (double)RAND_MAX) *
+                    ((double)(rank+1) / (double)size - (double)rank / (double)size) +
+                    (double)rank / (double)size;
+        y = (double)rand() / (double)RAND_MAX;
+        z = (double)rand() / (double)RAND_MAX;
+		
+		d = x * x + y * y + z * z;
+		
+        if (d <= r * r) {
+            num_inside++;
+        }
+    }
+	
+	// rank 0 sums num_inside to the num of points inside the shpere
+    MPI_Reduce(&num_inside, &ns, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+	// rank 0 calculates pi and print the results
+    if (rank == 0) {
+        pi = 6.0 * (double)ns / (double)nc;
+        printf("Pi = %f\n", pi);
+        printf("Absolute difference from reference value = %e\n", fabs(pi - pi25));
+        t2 = MPI_Wtime();
+        printf("Execution time = %f seconds\n", t2 - t1);
+    }
+    free(seeds);
+    MPI_Finalize();
+    return 0;
+}
